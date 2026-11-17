@@ -8,6 +8,8 @@ from pathlib import Path
 
 from PyQt6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, pyqtSignal
 
+from .extractors import build_augmented_path
+
 
 @dataclass(frozen=True)
 class RunArtifacts:
@@ -97,6 +99,7 @@ class BinwalkRunner(QObject):
         process.setWorkingDirectory(self._working_dir)
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONUNBUFFERED", "1")
+        env.insert("PATH", build_augmented_path(env.value("PATH")))
         process.setProcessEnvironment(env)
 
         process.readyReadStandardOutput.connect(self._on_stdout)

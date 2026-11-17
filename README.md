@@ -28,6 +28,10 @@ Nowoczesna aplikacja okienkowa w **PyQt6** dla narzędzia **Binwalk v2.4.3**, za
 - **Zapamiętywanie ustawień (`QSettings`) i własne presety JSON**:
   - Aplikacja automatycznie zapisuje przy zamknięciu i odtwarza przy starcie ustawienia przez `QSettings("binwalkGui", "BinwalkGUI")`: geometrię okna, proporcje podziału paneli (`splitter`), wybraną binarkę `binwalk` (z bezpiecznym powrotem do domyślnej, jeśli ścieżka zniknie), tryb długich flag (`--extract`) oraz ostatnio użyty katalog docelowy `-C` (przywracany tylko jeśli katalog nadal istnieje).
   - Obok listy presetów dostępne są przyciski **`Zapisz preset...`** oraz **`Usuń preset`** — własne zestawy wszystkich 54 flag zapisywane są w pliku `~/.config/binwalkGui/presets.json` (`binwalk_gui/presets_store.py`), z ochroną wbudowanych presetów przed nadpisaniem i usunięciem.
+- **Diagnostyka zewnętrznych ekstraktorów i rozszerzony `PATH`**:
+  - `BinwalkRunner` (`binwalk_gui/runner.py`) automatycznie wzbogaca `PATH` procesu potomnego o `~/.local/bin` oraz `/usr/local/bin` (`build_augmented_path` w `binwalk_gui/extractors.py`), dzięki czemu narzędzia zainstalowane lokalnie działają także po uruchomieniu GUI z menu pulpitu lub IDE.
+  - Okno **`Pomoc -> Sprawdź ekstraktory...`** (oraz przycisk **`Ekstraktory...`** na dolnym pasku, `binwalk_gui/ui/extractors_dialog.py`) sprawdza dostępność 14 kluczowych ekstraktorów i pozwala jednym kliknięciem skopiować polecenie instalacji.
+  - Gdy `binwalk` zgłosi brak zewnętrznego ekstraktora (`failed to run external extractor` / `might not be installed correctly`), GUI wyświetla wskazówkę kierującą do **`Pomoc -> Sprawdź ekstraktory...`**.
 - **Panel wyników (`Konsola wyjścia`, `Rozpakowane pliki`, `Wykres entropii`)**:
   - **Konsola wyjścia**: asynchroniczny strumień `stdout`/`stderr` (`QProcess` z `PYTHONUNBUFFERED=1`), konwersja kodów kolorów ANSI SGR na HTML (np. kolorowy diff `-W`), normalizacja CRLF, limit 20 000 linii w widoku konsoli, czyszczenie i zapis logu do pliku.
   - **Rozpakowane pliki**: wbudowany eksplorator drzewa katalogów (`QTreeView`) z automatycznym przełączaniem na nowo utworzony lub zmodyfikowany katalog `*.extracted`, czytelnym komunikatem i przyciskiem **`Utwórz katalog`** gdy wskazany folder `-C` jeszcze nie istnieje, otwieraniem elementów podwójnym kliknięciem, otwieraniem w menedżerze plików i kopiowaniem ścieżki.
@@ -40,6 +44,31 @@ Nowoczesna aplikacja okienkowa w **PyQt6** dla narzędzia **Binwalk v2.4.3**, za
 - **Python**: `>= 3.10` (przetestowano na `/usr/bin/python3` — Python `3.13.5`)
 - **PyQt6**: `>= 6.4`
 - **Binwalk**: `v2.4.3` dostępny w systemie (np. `/usr/bin/binwalk`, w `PATH` lub `~/.local/bin/binwalk`)
+
+---
+
+## Opcjonalne ekstraktory zewnętrzne
+
+`Binwalk` korzysta przy rozpakowywaniu (`-e`) z zewnętrznych narzędzi dla poszczególnych systemów plików i archiwów. Podczas uruchamiania procesu `BinwalkRunner` automatycznie dopisuje `~/.local/bin` oraz `/usr/local/bin` do zmiennej `PATH` (`build_augmented_path` w `binwalk_gui/extractors.py`).
+
+Aktualny stan wszystkich ekstraktorów sprawdzisz w aplikacji przez **`Pomoc -> Sprawdź ekstraktory...`** (lub przycisk **`Ekstraktory...`** na dolnym pasku), gdzie możesz też odświeżyć listę i skopiować instrukcję instalacji:
+
+| Narzędzie | Zastosowanie | Instalacja |
+|---|---|---|
+| `jefferson` | Systemy plików JFFS2 | `python3 -m venv ~/.local/share/jefferson-venv && ~/.local/share/jefferson-venv/bin/pip install jefferson && ln -sf ~/.local/share/jefferson-venv/bin/jefferson ~/.local/bin/jefferson` *(w Debian/Ubuntu wymaga `python3-venv`)* |
+| `sasquatch` | Niestandardowe / zmodyfikowane obrazy SquashFS | Zbuduj z `github.com/devttys0/sasquatch` (zainstaluj do `/usr/local/bin` lub `~/.local/bin`) |
+| `unsquashfs` | Standardowe systemy plików SquashFS | `sudo apt install squashfs-tools` |
+| `ubireader_extract_files` | Systemy plików UBIFS / UBI | `pipx install ubi_reader` (lub `pip install ubi-reader` w venv) |
+| `cramfsck` | Systemy plików CramFS | `sudo apt install cramfsswap` (lub `util-linux` / `cramfsprogs`) |
+| `7z` | Archiwa 7z, LZMA, ZIP, XZ, CAB i inne kontenery | `sudo apt install p7zip-full` |
+| `tar` | Archiwa TAR | `sudo apt install tar` |
+| `gzip` | Strumienie i archiwa GZIP | `sudo apt install gzip` |
+| `bzip2` | Strumienie i archiwa BZIP2 | `sudo apt install bzip2` |
+| `xz` | Strumienie i archiwa XZ / LZMA | `sudo apt install xz-utils` |
+| `lzop` | Strumienie i archiwa LZO | `sudo apt install lzop` |
+| `cabextract` | Archiwa Microsoft Cabinet (`.cab`) | `sudo apt install cabextract` |
+| `unrar` | Archiwa RAR | `sudo apt install unrar` (lub `unrar-free`) |
+| `unstuff` | Archiwa StuffIt (`.sit`) | Zainstaluj pakiet StuffIt Expander / binarkę `unstuff` w `PATH` |
 
 ---
 
@@ -255,6 +284,8 @@ Sprawdzenie składni i kompilacji bajtkodu wszystkich plików Pythona:
 - [`tests/test_command_builder.py`](tests/test_command_builder.py): weryfikacja pokrycia wszystkich 54 flag CLI (krótkich i długich), powtarzalnych opcji (`-D`, `-x`, `-y`), parsowania liczb `dec`/`hex`/`float`, walidacji błędów i ostrzeżeń, działania presetów oraz wyznaczania katalogu roboczego.
 - [`tests/test_ansi_and_integration.py`](tests/test_ansi_and_integration.py): testy konwertera `ansi_to_html` / `strip_ansi`, prawdziwego uruchomienia `binwalk -e` na syntetycznym pliku `.bin` z osadzonym strumieniem `gzip`, startu okna `MainWindow` w trybie `offscreen` oraz asynchronicznego wykonania w `BinwalkRunner` (`QProcess`).
 - [`tests/test_ui_shortcuts_and_edge_cases.py`](tests/test_ui_shortcuts_and_edge_cases.py): testy skrótów klawiszowych i paska menu, uruchamiania `-h` bez plików wejściowych, walidacji i paska nieistniejącego katalogu `-C` w `ResultsViewWidget`, przełączania zakładek wyników, kopiowania komendy, resetu presetów, wyszukiwarki oraz stanów przycisków w `FileDropListWidget`.
+- [`tests/test_settings_and_custom_presets.py`](tests/test_settings_and_custom_presets.py): odizolowane testy serializacji wszystkich 54 flag w `presets_store.py`, ochrony presetów wbudowanych, obsługi uszkodzonego JSON-a, zapisu/usuwania własnych presetów w `MainWindow` oraz zapisu/odtwarzania ustawień `QSettings` (w tym bezpiecznego fallbacku przy usuniętych ścieżkach).
+- [`tests/test_extractors_and_runner_path.py`](tests/test_extractors_and_runner_path.py): testy `build_augmented_path`, `check_extractors` na tymczasowych plikach wykonywalnych, okna `ExtractorCheckDialog` w trybie `offscreen`, wstrzykiwania `PATH` w procesie potomnym `BinwalkRunner` oraz akcji `Pomoc -> Sprawdź ekstraktory...` i wykrywania brakującego ekstraktora w `MainWindow`.
 
 ---
 
@@ -305,17 +336,21 @@ binwalkGui/
 │   ├── __init__.py                      # Metadane pakietu i wersja
 │   ├── models.py                        # Definicje 54 flag OPTION_SPECS, BinwalkOptions i PRESETS
 │   ├── presets_store.py                 # Zapis/odczyt własnych presetów JSON (~/.config/binwalkGui/presets.json)
+│   ├── extractors.py                    # Diagnostyka 14 ekstraktorów i rozszerzanie PATH (~/.local/bin, /usr/local/bin)
 │   ├── command_builder.py               # Wykrywanie binwalka, walidacja, budowanie argv i katalog roboczy
-│   ├── runner.py                        # Asynchroniczny BinwalkRunner (QProcess) i wykrywanie artefaktów
+│   ├── runner.py                        # Asynchroniczny BinwalkRunner (QProcess z rozszerzonym PATH) i artefakty
 │   ├── ansi.py                          # Konwersja kodów ANSI SGR na HTML i strip_ansi
 │   └── ui/
 │       ├── __init__.py
 │       ├── main_window.py               # Główne okno, menu, skróty, QSettings, presety, podgląd CLI, ciemny motyw
+│       ├── extractors_dialog.py         # Okno dialogowe ExtractorCheckDialog (Pomoc -> Sprawdź ekstraktory...)
 │       ├── option_tabs.py               # 7 zakładek opcji CLI i wyszukiwarka na żywo
 │       ├── results_view.py              # Konsola wyjścia, drzewo rozpakowanych plików i wykres PNG
 │       └── widgets.py                   # FileDropListWidget, PathPicker, ValidatedLineEdit, RepeatableListEditor
 └── tests/
     ├── test_command_builder.py          # Testy jednostkowe opcji, walidacji i budowania poleceń
     ├── test_ansi_and_integration.py     # Testy ANSI, integracji z binwalk CLI i PyQt6 offscreen
-    └── test_ui_shortcuts_and_edge_cases.py # Testy menu, skrótów klawiszowych i przypadków brzegowych UI
+    ├── test_ui_shortcuts_and_edge_cases.py # Testy menu, skrótów klawiszowych i przypadków brzegowych UI
+    ├── test_settings_and_custom_presets.py # Testy QSettings i własnych presetów JSON
+    └── test_extractors_and_runner_path.py # Testy diagnostyki ekstraktorów i PATH w BinwalkRunner
 ```

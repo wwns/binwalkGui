@@ -44,6 +44,7 @@ from ..presets_store import (
     save_custom_preset as save_stored_custom_preset,
 )
 from ..runner import BinwalkRunner, RunArtifacts, guess_default_extract_root
+from .extractors_dialog import ExtractorCheckDialog
 from .option_tabs import OptionTabsWidget
 from .results_view import ResultsViewWidget
 from .widgets import FileDropListWidget, PathPicker
@@ -189,6 +190,27 @@ QToolTip {
     border: 1px solid #3a445e;
     padding: 4px 6px;
 }
+QDialog {
+    background-color: #161922;
+    color: #e6e9ef;
+}
+QTableWidget {
+    background-color: #11141c;
+    alternate-background-color: #181c27;
+    gridline-color: #2b3245;
+    border: 1px solid #2f374d;
+    border-radius: 5px;
+    color: #e6e9ef;
+}
+QHeaderView::section {
+    background-color: #1e2330;
+    color: #e6e9ef;
+    border: none;
+    border-right: 1px solid #2b3245;
+    border-bottom: 1px solid #2b3245;
+    padding: 5px 8px;
+    font-weight: 600;
+}
 """
 
 
@@ -210,6 +232,8 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
 
         self._syncing_quick = False
+        self._missing_extractor_detected = False
+        self._output_tail = ""
         self._settings = settings if settings is not None else QSettings("binwalkGui", "BinwalkGUI")
         self._presets_path = Path(presets_path) if presets_path is not None else default_presets_path()
         self._custom_presets: dict[str, dict[str, object]] = load_custom_presets(self._presets_path)
@@ -219,8 +243,8 @@ class MainWindow(QMainWindow):
         )
         self._runner = BinwalkRunner(self)
         self._runner.started_run.connect(self._on_run_started)
-        self._runner.stdout_received.connect(lambda t: self._results.append_output(t, False))
-        self._runner.stderr_received.connect(lambda t: self._results.append_output(t, True))
+        self._runner.stdout_received.connect(lambda t: self._on_runner_output(t, False))
+        self._runner.stderr_received.connect(lambda t: self._on_runner_output(t, True))
         self._runner.finished_run.connect(self._on_run_finished)
         self._runner.failed_start.connect(self._on_run_failed)
 
@@ -340,6 +364,14 @@ class MainWindow(QMainWindow):
         help_menu = menu_bar.addMenu("P&omoc")
         help_menu.addAction(self._cli_help_action)
 
+        extractors_action = QAction("Sprawdź ekstraktory...", self)
+        extractors_action.setToolTip(
+            "Sprawdza dostępność zewnętrznych ekstraktorów (jefferson, unsquashfs, sasquatch itd.)."
+        )
+        extractors_action.triggered.connect(self._show_extractors_dialog)
+        help_menu.addAction(extractors_action)
+
+        help_menu.addSeparator()
         shortcuts_action = QAction("Skróty klawiszowe...", self)
         shortcuts_action.triggered.connect(self._show_shortcuts_dialog)
         help_menu.addAction(shortcuts_action)
@@ -506,6 +538,13 @@ class MainWindow(QMainWindow):
         reset_btn.setToolTip("Przywraca domyślne puste opcje (Ctrl+R).")
         reset_btn.clicked.connect(self._reset_options)
         layout.addWidget(reset_btn)
+
+        extractors_btn = QPushButton("Ekstraktory...")
+        extractors_btn.setToolTip(
+            "Sprawdza dostępność zewnętrznych narzędzi rozpakowujących (Pomoc -> Sprawdź ekstraktory...)."
+        )
+        extractors_btn.clicked.connect(self._show_extractors_dialog)
+        layout.addWidget(extractors_btn)
 
         self._status_label = QLabel("Gotowy")
         self._status_label.setObjectName("mutedLabel")
@@ -933,7 +972,32 @@ class MainWindow(QMainWindow):
         self._runner.terminate_on_close()
         event.accept()
 
+    def _show_extractors_dialog(self) -> None:
+        dlg = ExtractorCheckDialog(self)
+        dlg.exec()
+
+    def _on_runner_output(self, text: str, is_stderr: bool) -> None:
+        self._results.append_output(text, is_stderr)
+        if self._missing_extractor_detected:
+            return
+        combined = (self._output_tail + text).lower()
+        self._output_tail = combined[-300:]
+        if (
+            "failed to run external extractor" in combined
+            or "might not be installed correctly" in combined
+        ):
+            self._missing_extractor_detected = True
+            self._status_label.setText(
+                "Brak zewnętrznego ekstraktora — sprawdź Pomoc -> Sprawdź ekstraktory..."
+            )
+            self._results.append_banner(
+                "\n[Wskazówka] Wykryto brakujący ekstraktor zewnętrzny — użyj Pomoc -> Sprawdź ekstraktory..., aby zobaczyć instrukcję instalacji.\n",
+                color="#fcc419",
+            )
+
     def _on_run_started(self, working_dir: str) -> None:
+        self._missing_extractor_detected = False
+        self._output_tail = ""
         self._set_running_state(True)
         self._status_label.setText(f"W trakcie... ({working_dir})")
 
@@ -945,7 +1009,12 @@ class MainWindow(QMainWindow):
     def _on_run_finished(self, artifacts: RunArtifacts) -> None:
         self._set_running_state(False)
         color = "#51cf66" if artifacts.exit_code == 0 else "#fcc419"
-        self._status_label.setText(f"Zakończono (kod {artifacts.exit_code})")
+        if self._missing_extractor_detected:
+            self._status_label.setText(
+                f"Zakończono (kod {artifacts.exit_code}; brak ekstraktora — Pomoc -> Sprawdź ekstraktory...)"
+            )
+        else:
+            self._status_label.setText(f"Zakończono (kod {artifacts.exit_code})")
         self._results.append_banner(
             f"\n[Zakończono z kodem {artifacts.exit_code}]\n",
             color=color,
