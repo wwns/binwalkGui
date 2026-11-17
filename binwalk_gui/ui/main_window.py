@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QByteArray, QSettings, Qt
 from PyQt6.QtGui import QAction, QCloseEvent, QDragEnterEvent, QDropEvent, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication,
@@ -14,6 +15,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -25,7 +27,6 @@ from PyQt6.QtWidgets import (
 )
 
 from .. import __version__
-
 from ..command_builder import (
     build_command,
     default_binwalk_executable,
@@ -35,6 +36,13 @@ from ..command_builder import (
     validate_options,
 )
 from ..models import PRESETS, BinwalkOptions, apply_preset
+from ..presets_store import (
+    apply_preset_dict,
+    default_presets_path,
+    delete_custom_preset as delete_stored_custom_preset,
+    load_custom_presets,
+    save_custom_preset as save_stored_custom_preset,
+)
 from ..runner import BinwalkRunner, RunArtifacts, guess_default_extract_root
 from .option_tabs import OptionTabsWidget
 from .results_view import ResultsViewWidget
@@ -187,13 +195,24 @@ QToolTip {
 class MainWindow(QMainWindow):
     """Główne okno GUI dla Binwalk v2.4.3."""
 
-    def __init__(self, initial_files: list[str] | None = None) -> None:
+    CUSTOM_PRESET_PREFIX = "[Własny] "
+
+    def __init__(
+        self,
+        initial_files: list[str] | None = None,
+        *,
+        settings: QSettings | None = None,
+        presets_path: Path | str | None = None,
+    ) -> None:
         super().__init__()
         self.setWindowTitle("Binwalk GUI — Rozpakowywanie i analiza plików .bin")
         self.resize(1340, 860)
         self.setAcceptDrops(True)
 
         self._syncing_quick = False
+        self._settings = settings if settings is not None else QSettings("binwalkGui", "BinwalkGUI")
+        self._presets_path = Path(presets_path) if presets_path is not None else default_presets_path()
+        self._custom_presets: dict[str, dict[str, object]] = load_custom_presets(self._presets_path)
         self._options = BinwalkOptions(
             binwalk_executable=default_binwalk_executable(),
             extract=True,
@@ -207,10 +226,14 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._build_menu_bar()
+        self._restore_settings()
+        self._populate_preset_combo()
         self._option_tabs.load_from_options(self._options)
         self._sync_quick_controls_from_options()
         if initial_files:
             self._file_list.add_files(initial_files)
+        elif self._options.directory.strip() and os.path.isdir(self._options.directory.strip()):
+            self._results.set_extract_directory(self._options.directory.strip())
         self._update_command_preview()
 
     def _build_menu_bar(self) -> None:
@@ -334,7 +357,7 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(self._build_quick_bar())
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
@@ -349,14 +372,14 @@ class MainWindow(QMainWindow):
         self._option_tabs.optionsChanged.connect(self._on_tabs_changed)
         left_layout.addWidget(self._option_tabs, 1)
 
-        splitter.addWidget(left_panel)
+        self._splitter.addWidget(left_panel)
 
         self._results = ResultsViewWidget()
-        splitter.addWidget(self._results)
-        splitter.setStretchFactor(0, 5)
-        splitter.setStretchFactor(1, 6)
+        self._splitter.addWidget(self._results)
+        self._splitter.setStretchFactor(0, 5)
+        self._splitter.setStretchFactor(1, 6)
 
-        main_layout.addWidget(splitter, 1)
+        main_layout.addWidget(self._splitter, 1)
         main_layout.addWidget(self._build_command_bar())
 
     def _build_quick_bar(self) -> QFrame:
@@ -400,12 +423,23 @@ class MainWindow(QMainWindow):
         row1.addSpacing(10)
         row1.addWidget(QLabel("Preset:"))
         self._preset_combo = QComboBox()
-        self._preset_combo.setToolTip("Wybierz gotowy zestaw flag CLI dla typowych zadań.")
-        self._preset_combo.addItem("— Wybierz preset —")
-        for name in PRESETS:
-            self._preset_combo.addItem(name)
+        self._preset_combo.setToolTip("Wybierz gotowy lub własny zestaw flag CLI.")
+        self._preset_combo.setMinimumWidth(160)
         self._preset_combo.currentTextChanged.connect(self._on_preset_selected)
         row1.addWidget(self._preset_combo)
+
+        self._save_preset_btn = QPushButton("Zapisz preset...")
+        self._save_preset_btn.setToolTip("Zapisuje aktualnie wybrane opcje jako własny preset.")
+        self._save_preset_btn.clicked.connect(self._save_custom_preset_dialog)
+        row1.addWidget(self._save_preset_btn)
+
+        self._delete_preset_btn = QPushButton("Usuń preset")
+        self._delete_preset_btn.setToolTip(
+            "Usuwa wybrany własny preset (wbudowane presety są chronione)."
+        )
+        self._delete_preset_btn.setEnabled(False)
+        self._delete_preset_btn.clicked.connect(self._delete_selected_custom_preset)
+        row1.addWidget(self._delete_preset_btn)
 
         row1.addStretch()
 
@@ -543,21 +577,168 @@ class MainWindow(QMainWindow):
         self._option_tabs.load_from_options(self._options)
         self._update_command_preview()
 
-    def _on_preset_selected(self, preset_name: str) -> None:
-        if preset_name not in PRESETS:
-            return
-        self._options = apply_preset(self._collect_options(), preset_name)
-        if preset_name == "Wyczyść wszystkie opcje":
-            self._preset_combo.blockSignals(True)
-            self._preset_combo.setCurrentIndex(0)
+    def _populate_preset_combo(self, selected_custom: str | None = None) -> None:
+        self._preset_combo.blockSignals(True)
+        try:
+            self._preset_combo.clear()
+            self._preset_combo.addItem("— Wybierz preset —", "")
+            for name in PRESETS:
+                self._preset_combo.addItem(name, f"builtin:{name}")
+
+            if self._custom_presets:
+                self._preset_combo.insertSeparator(self._preset_combo.count())
+                for name in sorted(self._custom_presets):
+                    self._preset_combo.addItem(
+                        f"{self.CUSTOM_PRESET_PREFIX}{name}",
+                        f"custom:{name}",
+                    )
+
+            if selected_custom:
+                idx = self._preset_combo.findData(f"custom:{selected_custom}")
+                if idx >= 0:
+                    self._preset_combo.setCurrentIndex(idx)
+        finally:
             self._preset_combo.blockSignals(False)
+        self._sync_preset_buttons()
+
+    def _selected_custom_preset_name(self) -> str | None:
+        data = self._preset_combo.currentData()
+        if isinstance(data, str) and data.startswith("custom:"):
+            return data.removeprefix("custom:")
+        return None
+
+    def _sync_preset_buttons(self) -> None:
+        self._delete_preset_btn.setEnabled(self._selected_custom_preset_name() is not None)
+
+    def _on_preset_selected(self, preset_name: str) -> None:
+        data = self._preset_combo.currentData()
+        if isinstance(data, str) and data.startswith("builtin:"):
+            key = data.removeprefix("builtin:")
+            if key in PRESETS:
+                self._options = apply_preset(self._collect_options(), key)
+                if key == "Wyczyść wszystkie opcje":
+                    self._preset_combo.blockSignals(True)
+                    self._preset_combo.setCurrentIndex(0)
+                    self._preset_combo.blockSignals(False)
+            else:
+                self._sync_preset_buttons()
+                return
+        elif isinstance(data, str) and data.startswith("custom:"):
+            key = data.removeprefix("custom:")
+            if key in self._custom_presets:
+                self._options = apply_preset_dict(
+                    self._collect_options(),
+                    self._custom_presets[key],
+                )
+            else:
+                self._sync_preset_buttons()
+                return
+        elif preset_name in PRESETS:
+            self._options = apply_preset(self._collect_options(), preset_name)
+        else:
+            stripped = preset_name.removeprefix(self.CUSTOM_PRESET_PREFIX)
+            if stripped in self._custom_presets:
+                self._options = apply_preset_dict(
+                    self._collect_options(),
+                    self._custom_presets[stripped],
+                )
+            else:
+                self._sync_preset_buttons()
+                return
+
         self._option_tabs.load_from_options(self._options)
         self._sync_quick_controls_from_options()
         self._update_command_preview()
+        self._sync_preset_buttons()
+
+    def save_custom_preset(self, name: str) -> bool:
+        """Zapisuje aktualne opcje jako własny preset o podanej nazwie."""
+        cleaned = name.strip()
+        if not cleaned or cleaned in PRESETS:
+            return False
+        opts = self._collect_options()
+        try:
+            self._custom_presets = save_stored_custom_preset(cleaned, opts, self._presets_path)
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                "Błąd zapisu presetu",
+                f"Nie udało się zapisać presetu '{cleaned}':\n{exc}",
+            )
+            return False
+        self._populate_preset_combo(selected_custom=cleaned)
+        self._status_label.setText(f"Zapisano preset: {cleaned}")
+        return True
+
+    def delete_custom_preset(self, name: str) -> bool:
+        """Usuwa wskazany własny preset (wbudowane presety są chronione)."""
+        cleaned = name.strip()
+        if not cleaned or cleaned in PRESETS or cleaned not in self._custom_presets:
+            return False
+        try:
+            self._custom_presets = delete_stored_custom_preset(cleaned, self._presets_path)
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                "Błąd usuwania presetu",
+                f"Nie udało się usunąć presetu '{cleaned}':\n{exc}",
+            )
+            return False
+        self._populate_preset_combo()
+        self._status_label.setText(f"Usunięto preset: {cleaned}")
+        return True
+
+    def _save_custom_preset_dialog(self) -> None:
+        default_name = self._selected_custom_preset_name() or ""
+        raw_name, ok = QInputDialog.getText(
+            self,
+            "Zapisz własny preset",
+            "Nazwa własnego presetu:",
+            text=default_name,
+        )
+        if not ok:
+            return
+        cleaned = raw_name.strip()
+        if not cleaned:
+            QMessageBox.warning(self, "Zapisz preset", "Nazwa presetu nie może być pusta.")
+            return
+        if cleaned in PRESETS:
+            QMessageBox.warning(
+                self,
+                "Zapisz preset",
+                f"Nazwa '{cleaned}' jest zarezerwowana dla presetu wbudowanego.",
+            )
+            return
+        if cleaned in self._custom_presets:
+            reply = QMessageBox.question(
+                self,
+                "Nadpisać preset?",
+                f"Własny preset '{cleaned}' już istnieje. Czy go nadpisać?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self.save_custom_preset(cleaned)
+
+    def _delete_selected_custom_preset(self) -> None:
+        name = self._selected_custom_preset_name()
+        if not name:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Usuń preset",
+            f"Czy na pewno usunąć własny preset '{name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.delete_custom_preset(name)
 
     def _reset_options(self) -> None:
         self._options = apply_preset(self._collect_options(), "Wyczyść wszystkie opcje")
         self._preset_combo.setCurrentIndex(0)
+        self._sync_preset_buttons()
         self._option_tabs.load_from_options(self._options)
         self._sync_quick_controls_from_options()
         self._update_command_preview()
@@ -697,7 +878,58 @@ class MainWindow(QMainWindow):
         self._cli_help_action.setEnabled(not running)
         self._stop_action.setEnabled(running)
 
+    def _is_valid_executable(self, path: str) -> bool:
+        cleaned = path.strip()
+        if not cleaned:
+            return False
+        if os.path.isabs(cleaned) or os.sep in cleaned:
+            return os.path.isfile(cleaned) and os.access(cleaned, os.X_OK)
+        return shutil.which(cleaned) is not None
+
+    def _read_bool_setting(self, key: str, default: bool = False) -> bool:
+        raw = self._settings.value(key, default)
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, str):
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        return bool(raw)
+
+    def _restore_settings(self) -> None:
+        geom = self._settings.value("window/geometry")
+        if isinstance(geom, QByteArray) and not geom.isEmpty():
+            self.restoreGeometry(geom)
+
+        raw_sizes = self._settings.value("window/splitter_sizes")
+        if isinstance(raw_sizes, (list, tuple)) and len(raw_sizes) == self._splitter.count():
+            try:
+                sizes = [int(v) for v in raw_sizes]
+            except (TypeError, ValueError):
+                sizes = []
+            if len(sizes) == self._splitter.count() and all(s > 0 for s in sizes):
+                self._splitter.setSizes(sizes)
+
+        saved_exe = str(self._settings.value("options/binwalk_executable", "") or "").strip()
+        if saved_exe and self._is_valid_executable(saved_exe):
+            if self._exe_combo.findText(saved_exe) < 0:
+                self._exe_combo.addItem(saved_exe)
+            self._options.binwalk_executable = saved_exe
+
+        self._options.use_long_flags = self._read_bool_setting("options/use_long_flags", False)
+
+        saved_dir = str(self._settings.value("options/directory", "") or "").strip()
+        if saved_dir and os.path.isdir(saved_dir):
+            self._options.directory = saved_dir
+
+    def _save_settings(self) -> None:
+        self._settings.setValue("window/geometry", self.saveGeometry())
+        self._settings.setValue("window/splitter_sizes", self._splitter.sizes())
+        self._settings.setValue("options/binwalk_executable", self._exe_combo.currentText().strip())
+        self._settings.setValue("options/use_long_flags", self._long_flags_cb.isChecked())
+        self._settings.setValue("options/directory", self._quick_dir.text().strip())
+        self._settings.sync()
+
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._save_settings()
         self._runner.terminate_on_close()
         event.accept()
 

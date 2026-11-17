@@ -1,5 +1,8 @@
 # Binwalk GUI (PyQt6 dla Binwalk v2.4.3)
 
+[![CI](https://github.com/wwns/binwalkGui/actions/workflows/ci.yml/badge.svg)](https://github.com/wwns/binwalkGui/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Nowoczesna aplikacja okienkowa w **PyQt6** dla narzędzia **Binwalk v2.4.3**, zaprojektowana do szybkiego rozpakowywania obrazów firmware (`.bin`, `.img`, `.fw`, `.rom`, `.ubi`, `.squashfs`, `.trx` i innych) oraz wygodnego korzystania ze **wszystkich 54 flag CLI** bez konieczności zapamiętywania składni terminala.
 
 ---
@@ -22,6 +25,9 @@ Nowoczesna aplikacja okienkowa w **PyQt6** dla narzędzia **Binwalk v2.4.3**, za
   - Bezpośrednie uruchomienie pomocy `binwalk -h` (`F1` lub menu `Akcje` / `Pomoc`) bez konieczności wybierania plików wejściowych i bez nadpisywania skonfigurowanych opcji.
 - **Pasek menu i skróty klawiszowe**:
   - Menu **`Plik`**, **`Akcje`**, **`Widok`** i **`Pomoc`** (w tym dialog skrótów klawiszowych oraz `O programie...`).
+- **Zapamiętywanie ustawień (`QSettings`) i własne presety JSON**:
+  - Aplikacja automatycznie zapisuje przy zamknięciu i odtwarza przy starcie ustawienia przez `QSettings("binwalkGui", "BinwalkGUI")`: geometrię okna, proporcje podziału paneli (`splitter`), wybraną binarkę `binwalk` (z bezpiecznym powrotem do domyślnej, jeśli ścieżka zniknie), tryb długich flag (`--extract`) oraz ostatnio użyty katalog docelowy `-C` (przywracany tylko jeśli katalog nadal istnieje).
+  - Obok listy presetów dostępne są przyciski **`Zapisz preset...`** oraz **`Usuń preset`** — własne zestawy wszystkich 54 flag zapisywane są w pliku `~/.config/binwalkGui/presets.json` (`binwalk_gui/presets_store.py`), z ochroną wbudowanych presetów przed nadpisaniem i usunięciem.
 - **Panel wyników (`Konsola wyjścia`, `Rozpakowane pliki`, `Wykres entropii`)**:
   - **Konsola wyjścia**: asynchroniczny strumień `stdout`/`stderr` (`QProcess` z `PYTHONUNBUFFERED=1`), konwersja kodów kolorów ANSI SGR na HTML (np. kolorowy diff `-W`), normalizacja CRLF, limit 20 000 linii w widoku konsoli, czyszczenie i zapis logu do pliku.
   - **Rozpakowane pliki**: wbudowany eksplorator drzewa katalogów (`QTreeView`) z automatycznym przełączaniem na nowo utworzony lub zmodyfikowany katalog `*.extracted`, czytelnym komunikatem i przyciskiem **`Utwórz katalog`** gdy wskazany folder `-C` jeszcze nie istnieje, otwieraniem elementów podwójnym kliknięciem, otwieraniem w menedżerze plików i kopiowaniem ścieżki.
@@ -102,7 +108,7 @@ Okno główne udostępnia menu **`Plik`**, **`Akcje`**, **`Widok`** i **`Pomoc`*
 
 ---
 
-## Gotowe presety
+## Gotowe i własne presety
 
 Menu **`Preset:`** w górnym pasku pozwala jednym kliknięciem ustawić typowe zestawy flag (z zachowaniem wybranych plików docelowych, ścieżki do `binwalk`, trybu długich flag i folderu `-C`):
 
@@ -117,6 +123,12 @@ Menu **`Preset:`** w górnym pasku pozwala jednym kliknięciem ustawić typowe z
 | `Dezasemblacja architektury (-Y)` | `-Y` | Identyfikacja architektury CPU (wymaga binwalk z modułem `capstone`) |
 | `Kompresja surowa (-X -Z)` | `-X -Z` | Skan surowych strumieni Deflate oraz LZMA |
 | `Wyczyść wszystkie opcje` | *(brak)* | Zeruje wszystkie flagi opcji, zachowując pliki i ścieżkę binarki |
+
+### Własne presety użytkownika
+
+- **`Zapisz preset...`**: zapisuje bieżący stan wszystkich 54 opcji CLI w pliku `~/.config/binwalkGui/presets.json` (z potwierdzeniem przy nadpisywaniu istniejącego własnego presetu oraz blokadą rezerwującą nazwy presetów wbudowanych).
+- Własne presety pojawiają się na liście pod separatorem z prefiksem **`[Własny] `**.
+- **`Usuń preset`**: aktywny wyłącznie po wybraniu własnego presetu (wbudowane presety są chronione przed usunięciem).
 
 ---
 
@@ -256,14 +268,35 @@ Repozytorium zawiera gotową konfigurację dla Visual Studio Code w katalogu `.v
 
 ---
 
+## CI (GitHub Actions)
+
+Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) uruchamia się automatycznie przy każdym `push` oraz `pull_request` do gałęzi `main` na `ubuntu-latest`:
+
+- instaluje systemowy `binwalk` oraz biblioteki uruchomieniowe Qt dla trybu `offscreen`,
+- instaluje pakiet i zależności Pythona (`pip install -e .`),
+- sprawdza kompilację bajtkodu (`python3 -m compileall binwalk_gui tests main.py`),
+- uruchamia cały zestaw testów `unittest` z `QT_QPA_PLATFORM=offscreen`.
+
+---
+
+## Licencja
+
+Projekt udostępniany jest na licencji **MIT** — szczegóły w pliku [`LICENSE`](LICENSE).
+
+---
+
 ## Struktura projektu
 
 ```text
 binwalkGui/
 ├── main.py                              # Punkt wejścia aplikacji (run_app)
 ├── pyproject.toml                       # Konfiguracja pakietu Python i skryptu binwalk-gui
+├── LICENSE                              # Licencja MIT
 ├── README.md                            # Dokumentacja projektu
 ├── .gitignore                           # Ignorowane artefakty Python/PyQt6/Binwalk
+├── .github/
+│   └── workflows/
+│       └── ci.yml                       # Pipeline GitHub Actions (binwalk + compileall + unittest offscreen)
 ├── .vscode/
 │   ├── launch.json                      # Konfiguracje debugowania GUI i testów
 │   ├── settings.json                    # Interpreter Pythona i unittest
@@ -271,12 +304,13 @@ binwalkGui/
 ├── binwalk_gui/
 │   ├── __init__.py                      # Metadane pakietu i wersja
 │   ├── models.py                        # Definicje 54 flag OPTION_SPECS, BinwalkOptions i PRESETS
+│   ├── presets_store.py                 # Zapis/odczyt własnych presetów JSON (~/.config/binwalkGui/presets.json)
 │   ├── command_builder.py               # Wykrywanie binwalka, walidacja, budowanie argv i katalog roboczy
 │   ├── runner.py                        # Asynchroniczny BinwalkRunner (QProcess) i wykrywanie artefaktów
 │   ├── ansi.py                          # Konwersja kodów ANSI SGR na HTML i strip_ansi
 │   └── ui/
 │       ├── __init__.py
-│       ├── main_window.py               # Główne okno, pasek menu, skróty, szybkie akcje, podgląd CLI, ciemny motyw
+│       ├── main_window.py               # Główne okno, menu, skróty, QSettings, presety, podgląd CLI, ciemny motyw
 │       ├── option_tabs.py               # 7 zakładek opcji CLI i wyszukiwarka na żywo
 │       ├── results_view.py              # Konsola wyjścia, drzewo rozpakowanych plików i wykres PNG
 │       └── widgets.py                   # FileDropListWidget, PathPicker, ValidatedLineEdit, RepeatableListEditor
