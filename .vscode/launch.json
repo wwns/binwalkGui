@@ -1,0 +1,32 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Binwalk GUI",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "/usr/bin/python3",
+            "program": "${workspaceFolder}/main.py",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Run Unit Tests",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "/usr/bin/python3",
+            "module": "unittest",
+            "args": [
+                "discover",
+                "-s",
+                "tests",
+                "-v"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "QT_QPA_PLATFORM": "offscreen"
+            },
+            "console": "integratedTerminal"
+        }
+    ]
+}
