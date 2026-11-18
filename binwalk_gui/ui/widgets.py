@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QPushButton,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -66,6 +67,7 @@ class FileDropListWidget(QWidget):
         btn_row.setSpacing(6)
 
         self._add_btn = QPushButton("Dodaj plik(i)...")
+        self._add_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
         self._add_btn.setToolTip("Wybierz pliki binarne do analizy lub rozpakowania (Ctrl+O).")
         self._add_btn.clicked.connect(self.browse_files)
         btn_row.addWidget(self._add_btn)

@@ -8,7 +8,14 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import QByteArray, QSettings, Qt
-from PyQt6.QtGui import QAction, QCloseEvent, QDragEnterEvent, QDropEvent, QKeySequence
+from PyQt6.QtGui import (
+    QAction,
+    QActionGroup,
+    QCloseEvent,
+    QDragEnterEvent,
+    QDropEvent,
+    QKeySequence,
+)
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -22,6 +29,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -44,174 +52,18 @@ from ..presets_store import (
     save_custom_preset as save_stored_custom_preset,
 )
 from ..runner import BinwalkRunner, RunArtifacts, guess_default_extract_root
+from ..themes import (
+    DARK_STYLESHEET,
+    DEFAULT_THEME_ID,
+    THEME_LABELS,
+    apply_theme,
+    is_dark_theme,
+    normalize_theme_id,
+)
 from .extractors_dialog import ExtractorCheckDialog
 from .option_tabs import OptionTabsWidget
 from .results_view import ResultsViewWidget
 from .widgets import FileDropListWidget, PathPicker
-
-DARK_STYLESHEET = """
-QMainWindow, QWidget {
-    background-color: #161922;
-    color: #e6e9ef;
-    font-size: 13px;
-}
-QFrame#card, QFrame#optionRow {
-    background-color: #1e2330;
-    border: 1px solid #2b3245;
-    border-radius: 6px;
-}
-QLabel#sectionTitle {
-    font-weight: 600;
-    color: #ffffff;
-}
-QLabel#mutedLabel, QLabel#optionHint {
-    color: #9aa5be;
-    font-size: 12px;
-}
-QLabel#warningLabel {
-    color: #fcc419;
-    font-size: 12px;
-}
-QLineEdit, QListWidget, QTextEdit, QTreeView, QComboBox {
-    background-color: #11141c;
-    border: 1px solid #2f374d;
-    border-radius: 5px;
-    padding: 5px 7px;
-    color: #e6e9ef;
-}
-QLineEdit:focus, QListWidget:focus, QComboBox:focus {
-    border-color: #4dabf7;
-}
-QLineEdit[invalid="true"] {
-    border-color: #ff6b6b;
-    background-color: #26161b;
-}
-QTextEdit#consoleView, QLineEdit#commandPreview {
-    font-family: "DejaVu Sans Mono", "Liberation Mono", monospace;
-    font-size: 12px;
-}
-QPushButton {
-    background-color: #272e40;
-    border: 1px solid #3a445e;
-    border-radius: 5px;
-    padding: 6px 12px;
-    color: #e6e9ef;
-}
-QPushButton:hover {
-    background-color: #323b52;
-}
-QPushButton:disabled {
-    background-color: #1b202c;
-    color: #677189;
-}
-QPushButton#primaryBtn {
-    background-color: #228be6;
-    border-color: #339af0;
-    color: #ffffff;
-    font-weight: 600;
-}
-QPushButton#primaryBtn:hover {
-    background-color: #1c7ed6;
-}
-QPushButton#secondaryActionBtn {
-    background-color: #2b8a3e;
-    border-color: #37b24d;
-    color: #ffffff;
-    font-weight: 600;
-}
-QPushButton#secondaryActionBtn:hover {
-    background-color: #2f9e44;
-}
-QPushButton#dangerBtn {
-    background-color: #c92a2a;
-    border-color: #e03131;
-    color: #ffffff;
-    font-weight: 600;
-}
-QPushButton#dangerBtn:hover {
-    background-color: #e03131;
-}
-QTabWidget::pane {
-    border: 1px solid #2b3245;
-    border-radius: 6px;
-    background-color: #181c27;
-}
-QTabBar::tab {
-    background-color: #1e2330;
-    border: 1px solid #2b3245;
-    padding: 6px 12px;
-    margin-right: 2px;
-    border-top-left-radius: 5px;
-    border-top-right-radius: 5px;
-}
-QTabBar::tab:selected {
-    background-color: #273047;
-    color: #ffffff;
-    border-bottom-color: #4dabf7;
-}
-QMenuBar {
-    background-color: #11141c;
-    border-bottom: 1px solid #2b3245;
-    padding: 2px 4px;
-}
-QMenuBar::item {
-    background: transparent;
-    padding: 4px 10px;
-    border-radius: 4px;
-}
-QMenuBar::item:selected {
-    background-color: #273047;
-    color: #ffffff;
-}
-QMenu {
-    background-color: #1e2330;
-    border: 1px solid #2f374d;
-    padding: 4px;
-}
-QMenu::item {
-    padding: 5px 22px 5px 12px;
-    border-radius: 4px;
-}
-QMenu::item:selected {
-    background-color: #228be6;
-    color: #ffffff;
-}
-QMenu::item:disabled {
-    color: #677189;
-}
-QMenu::separator {
-    height: 1px;
-    background-color: #2b3245;
-    margin: 4px 6px;
-}
-QToolTip {
-    background-color: #1e2330;
-    color: #e6e9ef;
-    border: 1px solid #3a445e;
-    padding: 4px 6px;
-}
-QDialog {
-    background-color: #161922;
-    color: #e6e9ef;
-}
-QTableWidget {
-    background-color: #11141c;
-    alternate-background-color: #181c27;
-    gridline-color: #2b3245;
-    border: 1px solid #2f374d;
-    border-radius: 5px;
-    color: #e6e9ef;
-}
-QHeaderView::section {
-    background-color: #1e2330;
-    color: #e6e9ef;
-    border: none;
-    border-right: 1px solid #2b3245;
-    border-bottom: 1px solid #2b3245;
-    padding: 5px 8px;
-    font-weight: 600;
-}
-"""
 
 
 class MainWindow(QMainWindow):
@@ -234,6 +86,8 @@ class MainWindow(QMainWindow):
         self._syncing_quick = False
         self._missing_extractor_detected = False
         self._output_tail = ""
+        self._theme_id = DEFAULT_THEME_ID
+        self._theme_actions: dict[str, QAction] = {}
         self._settings = settings if settings is not None else QSettings("binwalkGui", "BinwalkGUI")
         self._presets_path = Path(presets_path) if presets_path is not None else default_presets_path()
         self._custom_presets: dict[str, dict[str, object]] = load_custom_presets(self._presets_path)
@@ -251,6 +105,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_menu_bar()
         self._restore_settings()
+        self.set_theme(self._theme_id, persist=False)
         self._populate_preset_combo()
         self._option_tabs.load_from_options(self._options)
         self._sync_quick_controls_from_options()
@@ -361,6 +216,19 @@ class MainWindow(QMainWindow):
         entropy_tab_action.triggered.connect(self._results.show_entropy_tab)
         view_menu.addAction(entropy_tab_action)
 
+        view_menu.addSeparator()
+        theme_menu = view_menu.addMenu("Skóra")
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        for theme_id, label in THEME_LABELS.items():
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setData(theme_id)
+            action.triggered.connect(lambda _checked=False, tid=theme_id: self.set_theme(tid))
+            theme_group.addAction(action)
+            theme_menu.addAction(action)
+            self._theme_actions[theme_id] = action
+
         help_menu = menu_bar.addMenu("P&omoc")
         help_menu.addAction(self._cli_help_action)
 
@@ -424,8 +292,11 @@ class MainWindow(QMainWindow):
         row1 = QHBoxLayout()
         row1.setSpacing(8)
 
+        style = self.style()
+
         self._unpack_btn = QPushButton("Rozpakuj teraz (-e)")
         self._unpack_btn.setObjectName("primaryBtn")
+        self._unpack_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self._unpack_btn.setToolTip(
             "Automatycznie włącza -e (--extract) i uruchamia rozpakowanie wybranych plików .bin (F5 / Ctrl+Enter)."
         )
@@ -434,11 +305,13 @@ class MainWindow(QMainWindow):
 
         self._scan_btn = QPushButton("Skanuj sygnatury (-B)")
         self._scan_btn.setObjectName("secondaryActionBtn")
+        self._scan_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self._scan_btn.setToolTip("Szybki skan sygnatur (-B) bez rozpakowywania (F6).")
         self._scan_btn.clicked.connect(self._quick_scan)
         row1.addWidget(self._scan_btn)
 
         self._run_btn = QPushButton("Uruchom wybrane opcje")
+        self._run_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_CommandLink))
         self._run_btn.setToolTip(
             "Uruchamia binwalk dokładnie z opcjami skonfigurowanymi w zakładkach (Ctrl+Shift+Enter)."
         )
@@ -447,6 +320,7 @@ class MainWindow(QMainWindow):
 
         self._stop_btn = QPushButton("Stop")
         self._stop_btn.setObjectName("dangerBtn")
+        self._stop_btn.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop))
         self._stop_btn.setToolTip("Zatrzymuje bieżący proces binwalk (Esc).")
         self._stop_btn.setEnabled(False)
         self._stop_btn.clicked.connect(self._runner.stop_run)
@@ -509,8 +383,16 @@ class MainWindow(QMainWindow):
             self._exe_combo.addItem(exe)
         self._exe_combo.setCurrentText(self._options.binwalk_executable)
         self._exe_combo.currentTextChanged.connect(self._on_quick_toggled)
-        self._exe_combo.setMinimumWidth(190)
+        self._exe_combo.setMinimumWidth(170)
         row2.addWidget(self._exe_combo, 1)
+
+        row2.addWidget(QLabel("Skóra:"))
+        self._theme_combo = QComboBox()
+        self._theme_combo.setToolTip("Wybierz styl wizualny interfejsu (Widok -> Skóra).")
+        for theme_id, label in THEME_LABELS.items():
+            self._theme_combo.addItem(label, theme_id)
+        self._theme_combo.currentIndexChanged.connect(self._on_theme_combo_changed)
+        row2.addWidget(self._theme_combo)
 
         outer.addLayout(row2)
         return card
@@ -540,6 +422,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(reset_btn)
 
         extractors_btn = QPushButton("Ekstraktory...")
+        extractors_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation))
         extractors_btn.setToolTip(
             "Sprawdza dostępność zewnętrznych narzędzi rozpakowujących (Pomoc -> Sprawdź ekstraktory...)."
         )
@@ -959,13 +842,42 @@ class MainWindow(QMainWindow):
         if saved_dir and os.path.isdir(saved_dir):
             self._options.directory = saved_dir
 
+        saved_theme = str(self._settings.value("ui/theme", DEFAULT_THEME_ID) or DEFAULT_THEME_ID).strip()
+        self._theme_id = normalize_theme_id(saved_theme)
+
     def _save_settings(self) -> None:
         self._settings.setValue("window/geometry", self.saveGeometry())
         self._settings.setValue("window/splitter_sizes", self._splitter.sizes())
         self._settings.setValue("options/binwalk_executable", self._exe_combo.currentText().strip())
         self._settings.setValue("options/use_long_flags", self._long_flags_cb.isChecked())
         self._settings.setValue("options/directory", self._quick_dir.text().strip())
+        self._settings.setValue("ui/theme", self._theme_id)
         self._settings.sync()
+
+    def set_theme(self, theme_id: str, *, persist: bool = True) -> str:
+        """Zmienia aktywną skórkę GUI i synchronizuje kontrolki oraz konsolę."""
+        normalized = apply_theme(theme_id, self)
+        self._theme_id = normalized
+
+        self._theme_combo.blockSignals(True)
+        idx = self._theme_combo.findData(normalized)
+        if idx >= 0:
+            self._theme_combo.setCurrentIndex(idx)
+        self._theme_combo.blockSignals(False)
+
+        action = self._theme_actions.get(normalized)
+        if action is not None:
+            action.setChecked(True)
+
+        self._results.set_dark_mode(is_dark_theme(normalized, self))
+        if persist:
+            self._settings.setValue("ui/theme", normalized)
+        return normalized
+
+    def _on_theme_combo_changed(self, index: int) -> None:
+        theme_id = self._theme_combo.itemData(index)
+        if isinstance(theme_id, str):
+            self.set_theme(theme_id)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._save_settings()
@@ -992,7 +904,7 @@ class MainWindow(QMainWindow):
             )
             self._results.append_banner(
                 "\n[Wskazówka] Wykryto brakujący ekstraktor zewnętrzny — użyj Pomoc -> Sprawdź ekstraktory..., aby zobaczyć instrukcję instalacji.\n",
-                color="#fcc419",
+                color=self._results.banner_color("warning"),
             )
 
     def _on_run_started(self, working_dir: str) -> None:
@@ -1004,11 +916,14 @@ class MainWindow(QMainWindow):
     def _on_run_failed(self, message: str) -> None:
         self._set_running_state(False)
         self._status_label.setText("Błąd uruchomienia")
-        self._results.append_banner(f"\n[BŁĄD] {message}\n", color="#ff6b6b")
+        self._results.append_banner(
+            f"\n[BŁĄD] {message}\n",
+            color=self._results.banner_color("error"),
+        )
 
     def _on_run_finished(self, artifacts: RunArtifacts) -> None:
         self._set_running_state(False)
-        color = "#51cf66" if artifacts.exit_code == 0 else "#fcc419"
+        color = self._results.banner_color("success" if artifacts.exit_code == 0 else "warning")
         if self._missing_extractor_detected:
             self._status_label.setText(
                 f"Zakończono (kod {artifacts.exit_code}; brak ekstraktora — Pomoc -> Sprawdź ekstraktory...)"
@@ -1041,7 +956,6 @@ def run_app(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     app = QApplication(sys.argv[:1])
     app.setStyle("Fusion")
-    app.setStyleSheet(DARK_STYLESHEET)
 
     initial_files = [os.path.abspath(p) for p in args if os.path.isfile(p)]
     window = MainWindow(initial_files=initial_files)

@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..extractors import ExtractorStatus, check_extractors
+from ..themes import is_dark_theme
 
 
 class ExtractorCheckDialog(QDialog):
@@ -103,6 +104,10 @@ class ExtractorCheckDialog(QDialog):
         self._statuses = check_extractors(self._path_env)
         self._table.setRowCount(len(self._statuses))
 
+        dark = is_dark_theme(self)
+        ok_color = QColor("#51cf66") if dark else QColor("#2b8a3e")
+        missing_color = QColor("#fcc419") if dark else QColor("#b45309")
+
         available_count = 0
         for row, status in enumerate(self._statuses):
             if status.available:
@@ -113,9 +118,7 @@ class ExtractorCheckDialog(QDialog):
             self._table.setItem(row, 0, cmd_item)
 
             status_item = QTableWidgetItem("Dostępny" if status.available else "Brak")
-            status_item.setForeground(
-                QColor("#51cf66") if status.available else QColor("#fcc419")
-            )
+            status_item.setForeground(ok_color if status.available else missing_color)
             self._table.setItem(row, 1, status_item)
 
             path_text = status.path or "—"

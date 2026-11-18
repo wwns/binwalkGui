@@ -26,14 +26,34 @@ ANSI_FG_COLORS: dict[int, str] = {
     97: "#ffffff",
 }
 
+ANSI_FG_COLORS_LIGHT: dict[int, str] = {
+    30: "#1f2328",
+    31: "#c92a2a",
+    32: "#2b8a3e",
+    33: "#b45309",
+    34: "#1864ab",
+    35: "#9c36b5",
+    36: "#0b7285",
+    37: "#495057",
+    90: "#57606a",
+    91: "#e03131",
+    92: "#2f9e44",
+    93: "#d97706",
+    94: "#1d4ed8",
+    95: "#ae3ec9",
+    96: "#0c8599",
+    97: "#1f2328",
+}
+
 
 def strip_ansi(text: str) -> str:
     """Usuwa wszystkie kody sterujące ANSI SGR z tekstu."""
     return ANSI_SGR_RE.sub("", text)
 
 
-def ansi_to_html(text: str) -> str:
+def ansi_to_html(text: str, *, dark: bool = True) -> str:
     """Konwertuje tekst z kodami ANSI SGR na HTML gotowy do osadzenia w QTextEdit."""
+    palette = ANSI_FG_COLORS if dark else ANSI_FG_COLORS_LIGHT
     parts: list[str] = []
     pos = 0
     fg_color: str | None = None
@@ -69,8 +89,8 @@ def ansi_to_html(text: str) -> str:
                 bold = False
             elif code == 39:
                 fg_color = None
-            elif code in ANSI_FG_COLORS:
-                fg_color = ANSI_FG_COLORS[code]
+            elif code in palette:
+                fg_color = palette[code]
 
     if pos < len(text):
         parts.append(wrap_segment(text[pos:]))

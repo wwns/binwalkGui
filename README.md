@@ -26,8 +26,14 @@ Nowoczesna aplikacja okienkowa w **PyQt6** dla narzędzia **Binwalk v2.4.3**, za
 - **Pasek menu i skróty klawiszowe**:
   - Menu **`Plik`**, **`Akcje`**, **`Widok`** i **`Pomoc`** (w tym dialog skrótów klawiszowych oraz `O programie...`).
 - **Zapamiętywanie ustawień (`QSettings`) i własne presety JSON**:
-  - Aplikacja automatycznie zapisuje przy zamknięciu i odtwarza przy starcie ustawienia przez `QSettings("binwalkGui", "BinwalkGUI")`: geometrię okna, proporcje podziału paneli (`splitter`), wybraną binarkę `binwalk` (z bezpiecznym powrotem do domyślnej, jeśli ścieżka zniknie), tryb długich flag (`--extract`) oraz ostatnio użyty katalog docelowy `-C` (przywracany tylko jeśli katalog nadal istnieje).
+  - Aplikacja automatycznie zapisuje przy zamknięciu i odtwarza przy starcie ustawienia przez `QSettings("binwalkGui", "BinwalkGUI")`: geometrię okna, proporcje podziału paneli (`splitter`), wybraną binarkę `binwalk` (z bezpiecznym powrotem do domyślnej, jeśli ścieżka zniknie), tryb długich flag (`--extract`), ostatnio użyty katalog docelowy `-C` (przywracany tylko jeśli katalog nadal istnieje) oraz wybraną skórkę UI (`ui/theme`).
   - Obok listy presetów dostępne są przyciski **`Zapisz preset...`** oraz **`Usuń preset`** — własne zestawy wszystkich 54 flag zapisywane są w pliku `~/.config/binwalkGui/presets.json` (`binwalk_gui/presets_store.py`), z ochroną wbudowanych presetów przed nadpisaniem i usunięciem.
+- **Przełączalne skórki UI (`binwalk_gui/themes.py`)**:
+  - Do wyboru są 3 skórki przełączane na żywo z paska narzędzi (**`Skóra:`**) lub z menu **`Widok -> Skóra`** (stan zapamiętywany w `QSettings`):
+    - **`Jasny klasyczny (PeaZip)`** *(domyślna)* — przejrzysty jasny styl desktopowy inspirowany menedżerami plików (`#f4f5f7` / `#ffffff`, obramowania `#d0d7de`, standardowe ikony Qt na przyciskach akcji),
+    - **`Ciemny (Dark)`** — ciemny motyw roboczy,
+    - **`Systemowy (Qt/XFCE)`** — minimalny styl wykorzystujący aktywną paletę Qt/XFCE.
+  - Kolory konsoli wyjścia (`ansi_to_html`, banery, `stderr`) oraz statusy w oknie ekstraktorów automatycznie dopasowują kontrast do jasnego lub ciemnego tła.
 - **Diagnostyka zewnętrznych ekstraktorów i rozszerzony `PATH`**:
   - `BinwalkRunner` (`binwalk_gui/runner.py`) automatycznie wzbogaca `PATH` procesu potomnego o `~/.local/bin` oraz `/usr/local/bin` (`build_augmented_path` w `binwalk_gui/extractors.py`), dzięki czemu narzędzia zainstalowane lokalnie działają także po uruchomieniu GUI z menu pulpitu lub IDE.
   - Okno **`Pomoc -> Sprawdź ekstraktory...`** (oraz przycisk **`Ekstraktory...`** na dolnym pasku, `binwalk_gui/ui/extractors_dialog.py`) sprawdza dostępność 14 kluczowych ekstraktorów i pozwala jednym kliknięciem skopiować polecenie instalacji.
@@ -286,6 +292,7 @@ Sprawdzenie składni i kompilacji bajtkodu wszystkich plików Pythona:
 - [`tests/test_ui_shortcuts_and_edge_cases.py`](tests/test_ui_shortcuts_and_edge_cases.py): testy skrótów klawiszowych i paska menu, uruchamiania `-h` bez plików wejściowych, walidacji i paska nieistniejącego katalogu `-C` w `ResultsViewWidget`, przełączania zakładek wyników, kopiowania komendy, resetu presetów, wyszukiwarki oraz stanów przycisków w `FileDropListWidget`.
 - [`tests/test_settings_and_custom_presets.py`](tests/test_settings_and_custom_presets.py): odizolowane testy serializacji wszystkich 54 flag w `presets_store.py`, ochrony presetów wbudowanych, obsługi uszkodzonego JSON-a, zapisu/usuwania własnych presetów w `MainWindow` oraz zapisu/odtwarzania ustawień `QSettings` (w tym bezpiecznego fallbacku przy usuniętych ścieżkach).
 - [`tests/test_extractors_and_runner_path.py`](tests/test_extractors_and_runner_path.py): testy `build_augmented_path`, `check_extractors` na tymczasowych plikach wykonywalnych, okna `ExtractorCheckDialog` w trybie `offscreen`, wstrzykiwania `PATH` w procesie potomnym `BinwalkRunner` oraz akcji `Pomoc -> Sprawdź ekstraktory...` i wykrywania brakującego ekstraktora w `MainWindow`.
+- [`tests/test_themes.py`](tests/test_themes.py): testy skórek `LIGHT`/`DARK`/`SYSTEM` i `normalize_theme_id`, adaptacyjnych palet `ansi_to_html(dark=False/True)`, domyślnej skórki `light` w `MainWindow`, przełączania na żywo (`QComboBox` / `Widok -> Skóra`), trwałości `ui/theme` w `QSettings` oraz kontrastu `ExtractorCheckDialog` w trybie jasnym i ciemnym.
 
 ---
 
@@ -337,12 +344,13 @@ binwalkGui/
 │   ├── models.py                        # Definicje 54 flag OPTION_SPECS, BinwalkOptions i PRESETS
 │   ├── presets_store.py                 # Zapis/odczyt własnych presetów JSON (~/.config/binwalkGui/presets.json)
 │   ├── extractors.py                    # Diagnostyka 14 ekstraktorów i rozszerzanie PATH (~/.local/bin, /usr/local/bin)
+│   ├── themes.py                        # Skórki UI (Jasny klasyczny PeaZip, Ciemny, Systemowy) i detekcja motywu
 │   ├── command_builder.py               # Wykrywanie binwalka, walidacja, budowanie argv i katalog roboczy
 │   ├── runner.py                        # Asynchroniczny BinwalkRunner (QProcess z rozszerzonym PATH) i artefakty
-│   ├── ansi.py                          # Konwersja kodów ANSI SGR na HTML i strip_ansi
+│   ├── ansi.py                          # Konwersja kodów ANSI SGR na HTML (tryb jasny i ciemny) oraz strip_ansi
 │   └── ui/
 │       ├── __init__.py
-│       ├── main_window.py               # Główne okno, menu, skróty, QSettings, presety, podgląd CLI, ciemny motyw
+│       ├── main_window.py               # Główne okno, menu, skróty, QSettings, presety, skórki, podgląd CLI
 │       ├── extractors_dialog.py         # Okno dialogowe ExtractorCheckDialog (Pomoc -> Sprawdź ekstraktory...)
 │       ├── option_tabs.py               # 7 zakładek opcji CLI i wyszukiwarka na żywo
 │       ├── results_view.py              # Konsola wyjścia, drzewo rozpakowanych plików i wykres PNG
@@ -352,5 +360,6 @@ binwalkGui/
     ├── test_ansi_and_integration.py     # Testy ANSI, integracji z binwalk CLI i PyQt6 offscreen
     ├── test_ui_shortcuts_and_edge_cases.py # Testy menu, skrótów klawiszowych i przypadków brzegowych UI
     ├── test_settings_and_custom_presets.py # Testy QSettings i własnych presetów JSON
-    └── test_extractors_and_runner_path.py # Testy diagnostyki ekstraktorów i PATH w BinwalkRunner
+    ├── test_extractors_and_runner_path.py # Testy diagnostyki ekstraktorów i PATH w BinwalkRunner
+    └── test_themes.py                   # Testy skórek UI, adaptacyjnych kolorów ANSI i trwałości ui/theme
 ```

@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QStyle,
     QTabWidget,
     QTextEdit,
     QTreeView,
@@ -36,6 +37,7 @@ class ResultsViewWidget(QWidget):
         super().__init__(parent)
         self._current_extract_dir = os.getcwd()
         self._current_pixmap: QPixmap | None = None
+        self._dark_mode = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -104,6 +106,7 @@ class ResultsViewWidget(QWidget):
         toolbar.addWidget(self._refresh_btn)
 
         self._open_folder_btn = QPushButton("Otwórz w menedżerze")
+        self._open_folder_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
         self._open_folder_btn.setToolTip("Otwiera bieżący katalog w systemowym menedżerze plików.")
         self._open_folder_btn.clicked.connect(self.open_current_folder)
         toolbar.addWidget(self._open_folder_btn)
@@ -176,6 +179,26 @@ class ResultsViewWidget(QWidget):
 
         return tab
 
+    def set_dark_mode(self, dark: bool) -> None:
+        """Ustawia tryb kolorystyczny (jasny/ciemny) dla wyjścia ANSI i banerów konsoli."""
+        self._dark_mode = bool(dark)
+
+    def banner_color(self, kind: str = "info") -> str:
+        """Zwraca kontrastowy kolor banera dla aktualnego trybu konsoli."""
+        if self._dark_mode:
+            return {
+                "info": "#74c0fc",
+                "success": "#51cf66",
+                "error": "#ff6b6b",
+                "warning": "#fcc419",
+            }.get(kind, "#74c0fc")
+        return {
+            "info": "#1864ab",
+            "success": "#2b8a3e",
+            "error": "#c92a2a",
+            "warning": "#b45309",
+        }.get(kind, "#1864ab")
+
     def clear_console(self) -> None:
         self._console.clear()
 
@@ -184,19 +207,21 @@ class ResultsViewWidget(QWidget):
         cursor = self._console.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         if is_stderr and "\x1b[" not in normalized:
+            stderr_color = "#ff8787" if self._dark_mode else "#c92a2a"
             escaped = html.escape(normalized).replace("\n", "<br>")
-            html_chunk = f'<span style="color:#ff8787">{escaped}</span>'
+            html_chunk = f'<span style="color:{stderr_color}">{escaped}</span>'
         else:
-            html_chunk = ansi_to_html(normalized)
+            html_chunk = ansi_to_html(normalized, dark=self._dark_mode)
         cursor.insertHtml(html_chunk)
         self._console.setTextCursor(cursor)
         self._console.ensureCursorVisible()
 
-    def append_banner(self, message: str, color: str = "#74c0fc") -> None:
+    def append_banner(self, message: str, color: str | None = None) -> None:
+        resolved_color = color if color is not None else self.banner_color("info")
         cursor = self._console.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         escaped = html.escape(message).replace("\n", "<br>")
-        cursor.insertHtml(f'<div style="color:{color};font-weight:bold">{escaped}</div>')
+        cursor.insertHtml(f'<div style="color:{resolved_color};font-weight:bold">{escaped}</div>')
         self._console.setTextCursor(cursor)
         self._console.ensureCursorVisible()
 
